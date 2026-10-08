@@ -23,7 +23,7 @@ PLUGIN_PATH = Path(__file__).resolve().parent.parent.parent
 class CommonDatabase:
     """通用数据库操作类"""
 
-    SCHEMA_VERSION = 1  # 当前数据库架构版本
+    SCHEMA_VERSION = 2  # 当前数据库架构版本
 
     def __init__(
         self,
@@ -63,6 +63,7 @@ class CommonDatabase:
         if not hasattr(self._local, "conn") or self._local.conn is None:
             try:
                 self._local.conn = sqlite3.connect(self.db_path)
+                self._local.conn.execute("PRAGMA busy_timeout = 5000")
                 self._local.conn.execute("PRAGMA foreign_keys = ON")  # 启用外键约束
                 self._local.conn.execute(
                     "PRAGMA journal_mode = WAL"
@@ -94,7 +95,7 @@ class CommonDatabase:
             yield conn
             # 如果是写操作，调用者应该手动 commit，或者我们在 execute_update 中 commit
             # 对于复用的连接，我们不在此处 close
-        except sqlite3.Error:
+        except BaseException:
             if conn:
                 conn.rollback()
             raise
@@ -226,5 +227,5 @@ class CommonDatabase:
         )
 
     def close(self):
-        """关闭数据库连接（占位方法，实际由上下文管理器处理）"""
-        pass
+        """Close the connection owned by the calling thread."""
+        self.close_thread_local_connection()

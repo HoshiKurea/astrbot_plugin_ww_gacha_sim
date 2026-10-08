@@ -10,10 +10,14 @@ from pathlib import Path
 from typing import cast
 
 from PIL import Image
+from astrbot.api.star import StarTools
+
+from ..web.path_security import managed_path
 
 from .local_file_cache_manager import LocalFileCacheManager
 from .proxy_config import ProxyConfig
 from .resource_loader import ResourceLoader
+from .image_encoding import encode_portrait
 
 PLUGIN_PATH = Path(__file__).resolve().parent.parent.parent
 
@@ -34,22 +38,22 @@ class UIResourceManager:
 
     def __init__(
         self,
+        resources_loader: ResourceLoader,
+        cache_manager: LocalFileCacheManager,
+        proxy_config: ProxyConfig,
         resource_dir: Path = PLUGIN_PATH / "src" / "assets",
-        resources_loader: ResourceLoader | None = None,
-        cache_manager: LocalFileCacheManager | None = None,
-        proxy_config: ProxyConfig | None = None,
+        portrait_store=None,
     ):
         # 初始化日志记录器
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.resource_dir = resource_dir
-        self.resources_downloader = (
-            resources_loader if resources_loader is not None else ResourceLoader()
-        )
-        self.cache_manager = (
-            cache_manager if cache_manager is not None else LocalFileCacheManager()
-        )
-        self.proxy_config = proxy_config if proxy_config is not None else ProxyConfig()
+        if resources_loader is None or cache_manager is None or proxy_config is None:
+            raise ValueError("UIResourceManager requires owned resources, cache and proxy")
+        self.resources_downloader = resources_loader
+        self.cache_manager = cache_manager
+        self.proxy_config = proxy_config
+        self.portrait_store = portrait_store
 
         # 加载精灵表配置
         self.sprite_atlas = safe_json_load(self.resource_dir / "gacha_atlas.json")
@@ -82,7 +86,9 @@ class UIResourceManager:
             return cached_sprite
 
         # 加载精灵表图像
-        atlas_path = self.resource_dir / "gacha_atlas.png"
+        atlas_path = self.resource_dir / "gacha_atlas.webp"
+        if not atlas_path.exists():
+            atlas_path = self.resource_dir / "gacha_atlas.png"
         try:
             atlas_img = Image.open(atlas_path)
             # 确保精灵表图像是RGBA模式以保留透明度信息
@@ -188,7 +194,7 @@ class UIResourceManager:
 
         return result_img
 
-    def get_background_for_quality(self, quality: int) -> str:
+    def get_background_for_quality(self, quality: int) -> Image.Image | str:
         """根据品质获取背景路径"""
         # 从精灵表中提取背景精灵
         sprite_name = f"bg_star_{quality}.png"
@@ -197,10 +203,7 @@ class UIResourceManager:
         )
 
         if sprite_img is not None:
-            # 如果从精灵表成功提取，保存到缓存
-            cache_key = f"bg_{quality}star_atlas"
-            cached_path = self.cache_manager.cache_image(sprite_img, cache_key)
-            return str(cached_path)
+            return sprite_img
         else:
             # 如果无法从精灵表提取，返回默认的背景路径
             default_bg_path = f"assets/backgrounds/bg_{quality}star.png"
@@ -250,7 +253,9 @@ class UIResourceManager:
 
     def get_background_path(self) -> str | None:
         """获取背景路径"""
-        bg_path = self.resource_dir / "T_LuckdrawBg.png"
+        bg_path = self.resource_dir / "T_LuckdrawBg.webp"
+        if not bg_path.exists():
+            bg_path = self.resource_dir / "T_LuckdrawBg.png"
         if bg_path.exists():
             return str(bg_path)
         return None
@@ -268,28 +273,79 @@ class UIResourceManager:
         Raises:
             Exception: 当所有资源获取方式都失败时抛出异常
         """
-        # 1. 计算缓存键
-        cache_key = hashlib.md5(item.external_id.encode()).hexdigest()
+        # Network access belongs to PortraitService, never a render worker.
+        portrait_url = item.portrait_url or ""
+        if getattr(self, "portrait_store", None) is not None and portrait_url:
+            content = self.portrait_store.cached_bytes(portrait_url)
+            if content is not None:
+                import io
+                with Image.open(io.BytesIO(content)) as image:
+                    if image.width * image.height > 20_000_000:
+                        raise ValueError("立绘尺寸过大")
+                    image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+                    return image.convert("RGBA")
+        if portrait_url.startswith("local:"):
+            try:
+                root = Path(StarTools.get_data_dir("astrbot_plugin_ww_gacha_sim")) / "portraits"
+                path = managed_path(root, portrait_url.removeprefix("local:"))
+                with Image.open(path) as image:
+                    image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+                    return image.convert("RGBA")
+            except (ValueError, OSError) as exc:
+                self.logger.error("无法读取受管立绘 %s: %s", portrait_url, exc)
+                raise ValueError("受管立绘不存在或无效") from exc
 
         # 2. 检查缓存
-        cached_file_path = self.cache_manager.get_cached_file_path(cache_key)
-        if cached_file_path and cached_file_path.exists():
-            self.logger.info(f"缓存命中: {cache_key} -> {cached_file_path}")
-            return Image.open(cached_file_path)
+        cached_image = self._cached_portrait(item)
+        if cached_image is not None:
+            self.logger.debug("立绘缓存命中: %s", self.portrait_cache_key(item))
+            return cached_image
 
-        # 3. 检查网络URL (portrait_url)
-        if item.portrait_url:
-            self.logger.info(f"尝试从网络下载: {item.portrait_url}")
-            cached_path_str = self._download_from_url(item.portrait_url, cache_key)
-            if cached_path_str:
-                return Image.open(cached_path_str)
+        raise ValueError(f"立绘尚未准备好: {item.name} (ID: {item.external_id})")
 
-        # 5. 都失败了
-        error_msg = f"无法获取立绘资源: {item.name} (ID: {item.external_id})"
-        self.logger.error(error_msg)
-        raise Exception(error_msg)
+    @staticmethod
+    def portrait_cache_key(item):
+        source = ResourceLoader._canonical_url(item.portrait_url or "")
+        return "portrait_" + hashlib.sha256(source.encode()).hexdigest()
 
-    def _download_from_url(self, url: str, cache_key: str) -> str | None:
+    def _cached_portrait(self, item):
+        picture = self.cache_manager.get_cached_image(self.portrait_cache_key(item))
+        if picture is None:
+            # Reuse existing PNG downloads when upgrading from the old cache.
+            legacy_key = hashlib.md5(f"{item.external_id}\0{item.portrait_url or ''}".encode()).hexdigest()
+            picture = self.cache_manager.get_cached_image(legacy_key)
+        return picture
+
+    def has_item_portrait(self, item):
+        if not item.portrait_url:
+            return True
+        if getattr(self, "portrait_store", None) is not None and self.portrait_store.has(item.portrait_url):
+            return True
+        if item.portrait_url.startswith("local:"):
+            root = Path(StarTools.get_data_dir("astrbot_plugin_ww_gacha_sim")) / "portraits"
+            return managed_path(root, item.portrait_url.removeprefix("local:")).is_file()
+        picture = self._cached_portrait(item)
+        if picture is None:
+            return False
+        picture.close()
+        return True
+
+    def download_item_portrait(self, item, stop_event=None):
+        if self.has_item_portrait(item):
+            return True
+        if not item.portrait_url or item.portrait_url.startswith("local:"):
+            return False
+        if getattr(self, "portrait_store", None) is not None:
+            try:
+                self.portrait_store.ensure(item.portrait_url)
+                return True
+            except (ValueError, OSError) as exc:
+                self.logger.warning("立绘准备失败：%s", exc)
+                return False
+        return self._download_from_url(item.portrait_url, self.portrait_cache_key(item),
+                                       stop_event=stop_event) is not None
+
+    def _download_from_url(self, url: str, cache_key: str, stop_event=None) -> bytes | None:
         """
         从URL下载资源并缓存
 
@@ -298,7 +354,7 @@ class UIResourceManager:
             cache_key: 缓存键
 
         Returns:
-            缓存文件路径，失败返回None
+            下载内容，失败返回None
         """
         try:
             # 获取代理配置
@@ -306,14 +362,14 @@ class UIResourceManager:
 
             # 使用资源下载器下载资源
             content = self.resources_downloader.download_with_retry(
-                url, proxy=proxy_dict
+                url, proxy=proxy_dict, max_retries=1, timeout=8,
+                stop_event=stop_event, total_budget_seconds=30,
             )
 
             if content:
-                # 保存到缓存
-                cached_file_path = self.cache_manager.cache_file(content, cache_key)
-                self.logger.info(f"成功从网络下载资源: {url} -> {cached_file_path}")
-                return str(cached_file_path)
+                compact = encode_portrait(content)
+                self.cache_manager.cache_file(compact, cache_key, expire_time=30 * 86400)
+                return compact
             else:
                 self.logger.warning(f"网络下载失败: {url}")
                 return None

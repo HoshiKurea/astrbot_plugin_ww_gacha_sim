@@ -2,9 +2,11 @@
 *
 
 # Whitelist directories (allow git to traverse them)
-!card_pool_configs/
 !src/
 !.github/
+!tests/
+!webui/
+!pages/
 
 # Whitelist files in root
 !_conf_schema.json
@@ -15,14 +17,22 @@
 !metadata.yaml
 !README.md
 !requirements.txt
+!LICENSE
+!requirements-dev.txt
+!pyproject.toml
 
 # Whitelist contents of directories
-!card_pool_configs/**
 !src/**
 !.github/**
+!tests/**
+!webui/**
+!pages/**
 
 # Blacklist specific unwanted paths
 src/web/dev/
+webui/node_modules/
 **/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
 *.pyc
-                          
+*.zip

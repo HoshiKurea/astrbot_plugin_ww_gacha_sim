@@ -17,7 +17,7 @@ class ItemDBOperations:
     使用 CommonDatabase 作为底层数据库交互组件
     """
 
-    def __init__(self, db: CommonDatabase = CommonDatabase()):
+    def __init__(self, db: CommonDatabase):
         """
         初始化数据库操作管理器
 
@@ -25,6 +25,17 @@ class ItemDBOperations:
             db: 数据库实例
         """
         self.db = db
+
+    @staticmethod
+    def _normalize_portrait_url(value: Any) -> Any:
+        """Store the repository origin instead of a nested proxy URL."""
+        if not isinstance(value, str):
+            return value
+        marker = "https://raw.githubusercontent.com/"
+        proxy_prefix = "https://v6.gh-proxy.org/" + marker
+        while value.startswith(proxy_prefix):
+            value = marker + value[len(proxy_prefix):]
+        return value
 
     def _init_tables(self, table_name="items"):
         """初始化物品相关的数据库表结构
@@ -334,7 +345,7 @@ class ItemDBOperations:
                     formatted_rarity,
                     item_data["type"],
                     item_data.get("affiliated_type", ""),
-                    item_data.get("portrait_url", ""),
+                    self._normalize_portrait_url(item_data.get("portrait_url", "")),
                     1 if item_data.get("apply_gradient") else 0,
                 ),
             )
@@ -395,7 +406,7 @@ class ItemDBOperations:
                         formatted_rarity,
                         item["type"],
                         item.get("affiliated_type", ""),
-                        item.get("portrait_url", ""),
+                        self._normalize_portrait_url(item.get("portrait_url", "")),
                         1 if item.get("apply_gradient") else 0,
                     )
                 )
@@ -480,6 +491,8 @@ class ItemDBOperations:
                         values.append(formatted_rarity)
                     elif field == "apply_gradient":
                         values.append(1 if value else 0)
+                    elif field == "portrait_url":
+                        values.append(self._normalize_portrait_url(value))
                     else:
                         values.append(value)
                     fields.append(f"{field} = ?")

@@ -4,7 +4,8 @@
 包含业务逻辑相关的数据库操作方法
 """
 
-import concurrent.futures
+import hashlib
+import json
 from typing import Any
 
 from astrbot.api import logger
@@ -19,7 +20,7 @@ class GachaDBOperations:
     包含业务逻辑相关的数据库操作方法
     """
 
-    def __init__(self, db: CommonDatabase = CommonDatabase()):
+    def __init__(self, db: CommonDatabase):
         """
         初始化抽卡数据库操作管理器
 
@@ -29,10 +30,182 @@ class GachaDBOperations:
         self.db = db
         # 初始化业务相关的数据库表结构
         self._init_business_tables()
-        # 使用线程池进行异步数据库操作，提高响应速度，避免死锁
-        self._db_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=2, thread_name_prefix="GachaDB-"
-        )  # 数据库操作线程池
+
+    @staticmethod
+    def actor_id(platform_id: str, sender_id: str) -> str:
+        if not platform_id or not sender_id:
+            raise ValueError("平台实例和用户 ID 均不能为空")
+        return hashlib.sha256(f"{platform_id}\0{sender_id}".encode()).hexdigest()
+
+    def commit_draws_v2(self, platform_id: str, sender_id: str,
+                        pity_group_id: str, pool_id: str, config_group: str,
+                        config_version: str, operation: str, request_key: str | None,
+                        count: int, draw, record_history: bool):
+        """Serialize state, receipt and optional history in one write transaction."""
+        from ..item_data.item_manager import Item
+
+        if count not in (1, 10) or not pity_group_id:
+            raise ValueError("无效的抽卡数量或保底组")
+        actor = self.actor_id(platform_id, sender_id)
+        with self.db.get_connection() as conn:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                if request_key:
+                    existing = conn.execute(
+                        "SELECT actor_id, operation, results_json FROM pull_batches WHERE request_key=?",
+                        (request_key,),
+                    ).fetchone()
+                    if existing:
+                        if existing[0] != actor or existing[1] != operation:
+                            raise ValueError("请求凭据与原抽卡不匹配")
+                        results = [Item.from_dict(row) for row in json.loads(existing[2])]
+                        conn.commit()
+                        return results
+                row = conn.execute(
+                    "SELECT pity_5star, pity_4star, _5star_guaranteed, "
+                    "_4star_guaranteed, pull_count, revision FROM gacha_states_v2 "
+                    "WHERE actor_id=? AND pity_group_id=?", (actor, pity_group_id),
+                ).fetchone()
+                state = dict(
+                    pity_5star=row[0] if row else 0,
+                    pity_4star=row[1] if row else 0,
+                    _5star_guaranteed=bool(row[2]) if row else False,
+                    _4star_guaranteed=bool(row[3]) if row else False,
+                    pull_count=row[4] if row else 0,
+                )
+                items, updated = draw(state)
+                if len(items) != count or any(item is None for item in items):
+                    raise ValueError("抽卡结果不完整，未保存任何结果")
+                snapshots = [item.to_dict() for item in items]
+                conn.execute("INSERT OR IGNORE INTO actors(actor_id, platform_id, sender_id) VALUES (?,?,?)",
+                             (actor, platform_id, sender_id))
+                conn.execute("""INSERT INTO gacha_states_v2
+                    (actor_id,pity_group_id,pity_5star,pity_4star,_5star_guaranteed,
+                    _4star_guaranteed,pull_count,revision) VALUES (?,?,?,?,?,?,?,1)
+                    ON CONFLICT(actor_id,pity_group_id) DO UPDATE SET
+                    pity_5star=excluded.pity_5star,pity_4star=excluded.pity_4star,
+                    _5star_guaranteed=excluded._5star_guaranteed,
+                    _4star_guaranteed=excluded._4star_guaranteed,
+                    pull_count=excluded.pull_count,revision=revision+1""",
+                    (actor, pity_group_id, updated["pity_5star"], updated["pity_4star"],
+                     int(updated["_5star_guaranteed"]), int(updated["_4star_guaranteed"]),
+                     updated["pull_count"]),
+                )
+                batch = conn.execute("""INSERT INTO pull_batches
+                    (request_key,actor_id,pity_group_id,pool_id,config_version,operation,results_json)
+                    VALUES (?,?,?,?,?,?,?)""",
+                    (request_key, actor, pity_group_id, pool_id, config_version, operation,
+                     json.dumps(snapshots, ensure_ascii=False)),
+                ).lastrowid
+                if record_history:
+                    conn.executemany("""INSERT INTO pull_history_v2
+                        (batch_id,draw_index,actor_id,pool_id,config_group,external_id,item,type,rarity)
+                        VALUES (?,?,?,?,?,?,?,?,?)""",
+                        [(batch, index, actor, pool_id, config_group, item.external_id,
+                          item.name, item.type, item.rarity)
+                         for index, item in enumerate(items, 1)],
+                    )
+                conn.commit()
+                return items
+            except BaseException:
+                conn.rollback()
+                raise
+
+    def load_pull_history_v2(self, platform_id: str, sender_id: str,
+                             limit: int, offset: int, pool_id: str | None = None):
+        actor = self.actor_id(platform_id, sender_id)
+        where = "WHERE actor_id=?" + (" AND pool_id=?" if pool_id else "")
+        args = (actor, pool_id) if pool_id else (actor,)
+        rows = self.db.execute_query(
+            "SELECT id,item,rarity,pool_id,pull_time,type,external_id,draw_index "
+            f"FROM pull_history_v2 {where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            (*args, limit, offset),
+        )
+        return [dict(row) for row in rows]
+
+    def get_pull_history_count_v2(self, platform_id: str, sender_id: str,
+                                  pool_id: str | None = None) -> int:
+        actor = self.actor_id(platform_id, sender_id)
+        where = "WHERE actor_id=?" + (" AND pool_id=?" if pool_id else "")
+        args = (actor, pool_id) if pool_id else (actor,)
+        return self.db.execute_query_single(
+            f"SELECT COUNT(*) AS total FROM pull_history_v2 {where}", args,
+        )["total"]
+
+    def load_state_v2(self, platform_id: str, sender_id: str,
+                      pity_group_id: str) -> dict[str, Any]:
+        actor = self.actor_id(platform_id, sender_id)
+        row = self.db.execute_query_single(
+            "SELECT pity_5star,pity_4star,_5star_guaranteed,"
+            "_4star_guaranteed,pull_count FROM gacha_states_v2 "
+            "WHERE actor_id=? AND pity_group_id=?",
+            (actor, pity_group_id),
+        )
+        return {
+            "pity_5star": row["pity_5star"] if row else 0,
+            "pity_4star": row["pity_4star"] if row else 0,
+            "_5star_guaranteed": bool(row["_5star_guaranteed"]) if row else False,
+            "_4star_guaranteed": bool(row["_4star_guaranteed"]) if row else False,
+            "pull_count": row["pull_count"] if row else 0,
+        }
+
+    def claim_legacy(self, legacy_user_id: str, platform_id: str,
+                     sender_id: str) -> int:
+        """Explicit administrator mapping; preserve legacy rows and their original IDs."""
+        actor = self.actor_id(platform_id, sender_id)
+        with self.db.get_connection() as conn:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                claimed = conn.execute("SELECT actor_id FROM legacy_claims WHERE legacy_user_id=?",
+                                       (legacy_user_id,)).fetchone()
+                if claimed:
+                    if claimed[0] != actor:
+                        raise ValueError("旧身份已归属其他用户")
+                    conn.commit()
+                    return 0
+                state = conn.execute("SELECT pity_5star,pity_4star,_5star_guaranteed,"
+                                     "_4star_guaranteed,pull_count FROM gacha_states WHERE user_id=?",
+                                     (legacy_user_id,)).fetchone()
+                history = conn.execute("SELECT id,item,rarity,pool_id,pull_time "
+                                       "FROM pull_history WHERE user_id=? ORDER BY id",
+                                       (legacy_user_id,)).fetchall()
+                if state is None and not history:
+                    raise ValueError("旧身份没有可迁移的数据")
+                if conn.execute("SELECT 1 FROM gacha_states_v2 WHERE actor_id=? AND pity_group_id='legacy_shared'",
+                                (actor,)).fetchone():
+                    raise ValueError("目标已有 legacy_shared 保底，不能覆盖")
+                conn.execute("INSERT OR IGNORE INTO actors VALUES (?,?,?)",
+                             (actor, platform_id, sender_id))
+                if state:
+                    conn.execute("INSERT INTO gacha_states_v2 VALUES (?,?,?,?,?,?,?,1)",
+                                 (actor, "legacy_shared", *state))
+                conn.executemany("""INSERT INTO pull_history_v2
+                    (actor_id,draw_index,pool_id,item,rarity,pull_time,legacy_id)
+                    VALUES (?,0,?,?,?,?,?)""",
+                    [(actor, row[3], row[1], row[2], row[4], row[0]) for row in history])
+                conn.execute("INSERT INTO legacy_claims(legacy_user_id,actor_id) VALUES (?,?)",
+                             (legacy_user_id, actor))
+                conn.commit()
+                return len(history)
+            except BaseException:
+                conn.rollback()
+                raise
+
+    def prune_receipts(self, days: int = 7) -> int:
+        """Bound short-term dedup receipts without deleting long-term history."""
+        if days < 1:
+            raise ValueError("保留天数至少为 1")
+        with self.db.get_connection() as conn:
+            try:
+                cursor = conn.execute(
+                    "DELETE FROM pull_batches WHERE created_at < datetime('now', ?)",
+                    (f"-{days} days",),
+                )
+                conn.commit()
+                return cursor.rowcount
+            except BaseException:
+                conn.rollback()
+                raise
 
     def _init_business_tables(self):
         """初始化业务相关的数据库表结构"""
@@ -109,6 +282,67 @@ class GachaDBOperations:
         self.db.execute_update(
             "INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,)
         )
+
+    def commit_draws(self, user_id: str, pool_id: str, count: int, draw, record_history: bool):
+        """Read pity, generate a complete batch, and persist it as one transaction.
+
+        BEGIN IMMEDIATE serializes competing draws before either reads the state.
+        The draw callback runs against that state and must not perform I/O.
+        """
+        if count not in (1, 10):
+            raise ValueError("只支持单抽或十连")
+        with self.db.get_connection() as conn:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    "SELECT pity_5star, pity_4star, _5star_guaranteed, "
+                    "_4star_guaranteed, pull_count FROM gacha_states WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()
+                state = {
+                    "pity_5star": row[0] if row else 0,
+                    "pity_4star": row[1] if row else 0,
+                    "_5star_guaranteed": bool(row[2]) if row else False,
+                    "_4star_guaranteed": bool(row[3]) if row else False,
+                    "pull_count": row[4] if row else 0,
+                }
+                items, updated = draw(state)
+                if len(items) != count or any(item is None for item in items):
+                    raise ValueError("抽卡结果不完整，未保存任何结果")
+                conn.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
+                conn.execute(
+                    "INSERT INTO gacha_states "
+                    "(user_id, pity_5star, pity_4star, _5star_guaranteed, "
+                    "_4star_guaranteed, pull_count) VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET "
+                    "pity_5star=excluded.pity_5star, "
+                    "pity_4star=excluded.pity_4star, "
+                    "_5star_guaranteed=excluded._5star_guaranteed, "
+                    "_4star_guaranteed=excluded._4star_guaranteed, "
+                    "pull_count=excluded.pull_count",
+                    (
+                        user_id,
+                        updated["pity_5star"],
+                        updated["pity_4star"],
+                        int(updated["_5star_guaranteed"]),
+                        int(updated["_4star_guaranteed"]),
+                        updated["pull_count"],
+                    ),
+                )
+                if record_history:
+                    from datetime import datetime
+
+                    pull_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    conn.executemany(
+                        "INSERT INTO pull_history "
+                        "(user_id, item, rarity, pool_id, pull_time) VALUES (?, ?, ?, ?, ?)",
+                        [(user_id, item.name, item.rarity, pool_id, pull_time) for item in items],
+                    )
+                conn.commit()
+                return items
+            except BaseException:
+                conn.rollback()
+                raise
 
     def save_user_state(self, user_id: str, state_data: dict[str, Any]):
         """
@@ -410,50 +644,5 @@ class GachaDBOperations:
             logger.error(f"清除用户数据失败: {user_id}, 错误: {e}")
             raise
 
-    # 异步操作方法
-    def save_user_state_async(self, user_id: str, state_data: dict[str, Any]):
-        """
-        异步保存用户状态到数据库
-
-        Args:
-            user_id: 用户ID
-            state_data: 包含用户状态信息的字典
-        """
-
-        def save_state():
-            try:
-                self.save_user_state(user_id, state_data)
-                logger.debug(f"异步保存用户状态成功: {user_id}")
-            except Exception as e:
-                logger.error(f"异步保存用户状态失败: {user_id}, 错误: {e}")
-
-        self._db_executor.submit(save_state)
-
-    def save_pull_history_batch_async(
-        self, user_id: str, batch_data: list[dict[str, Any]]
-    ):
-        """
-        异步批量保存抽卡记录到数据库
-
-        Args:
-            user_id: 用户ID
-            batch_data: 包含多个抽卡记录的列表
-        """
-
-        def save_batch():
-            try:
-                self.save_pull_history_batch(user_id, batch_data)
-                logger.debug(
-                    f"异步批量保存抽卡记录成功: {user_id}, 数量: {len(batch_data)}"
-                )
-            except Exception as e:
-                logger.error(f"异步批量保存抽卡记录失败: {user_id}, 错误: {e}")
-
-        self._db_executor.submit(save_batch)
-
     def close(self):
-        """
-        关闭线程池资源
-        """
-        logger.info("关闭数据库操作线程池")
-        self._db_executor.shutdown(wait=True)
+        self.db.close()

@@ -55,8 +55,11 @@ class LayoutConfig:
 class GachaRenderer:
     """抽卡结果渲染器"""
 
-    def __init__(self, ui_resource_manager: UIResourceManager = UIResourceManager()):
+    def __init__(self, ui_resource_manager: UIResourceManager):
         self.ui_resource_manager = ui_resource_manager
+        self.font_path = ""
+        self.font_source = "unchecked"
+        self._font_warning_logged = False
         # 渲染参数 (从配置类加载)
         self.card_width = LayoutConfig.CARD_WIDTH
         self.card_height = LayoutConfig.CARD_HEIGHT
@@ -75,14 +78,20 @@ class GachaRenderer:
         if size in self._font_cache:
             return self._font_cache[size]
         font = None
-        for name in _SYSTEM_FONT_CANDIDATES:
+        candidates = ([self.font_path] if self.font_path else []) + _SYSTEM_FONT_CANDIDATES
+        for name in candidates:
             try:
                 font = ImageFont.truetype(name, size)
+                self.font_source = name
                 break
             except OSError:
                 continue
         if font is None:
             font = ImageFont.load_default()
+            self.font_source = "fallback"
+            if not self._font_warning_logged:
+                logger.warning("未找到可用的中文字体，图片文字可能显示不完整；请配置 font_path")
+                self._font_warning_logged = True
         self._font_cache[size] = font
         return font
 
@@ -330,8 +339,12 @@ class GachaRenderer:
         else:
             # 后备方案
             rarity_int = int(rarity.replace("star", "")) if rarity else 3
-            bg_path = self.ui_resource_manager.get_background_for_quality(rarity_int)
-            alt_bg = Image.open(bg_path).convert("RGBA").resize((W, H))
+            bg_source = self.ui_resource_manager.get_background_for_quality(rarity_int)
+            if isinstance(bg_source, Image.Image):
+                alt_bg = bg_source.convert("RGBA").resize((W, H))
+            else:
+                with Image.open(bg_source) as background:
+                    alt_bg = background.convert("RGBA").resize((W, H))
             card.paste(alt_bg, (0, 0))
 
         # --- 图层 3: 立绘层 (Portrait) ---
@@ -376,6 +389,8 @@ class GachaRenderer:
                 card.paste(portrait_layer, (px, py), portrait_layer)
         except Exception as e:
             logger.warning(f"立绘加载失败: {e}")
+            if item.portrait_url:
+                raise
 
         # --- 图层 3.5: 半调图案层 (缓存缩放+透明度结果) ---
         try:
@@ -492,6 +507,7 @@ class GachaRenderer:
         # --- 使用T_LuckdrawBg.png作为单抽背景（缓存裁剪结果） ---
         bg_path_str = self.ui_resource_manager.get_background_path()
         final_image = None
+        background_composited = False
 
         if bg_path_str:
             try:
@@ -515,6 +531,7 @@ class GachaRenderer:
                 card_x = (1000 - card.width) // 2
                 card_y = (800 - card.height) // 2
                 final_image.paste(card, (card_x, card_y), card)
+                background_composited = True
             except Exception as e:
                 logger.warning(f"背景处理失败: {e}")
                 final_image = card
@@ -575,7 +592,9 @@ class GachaRenderer:
                     fill=(255, 255, 255, 204),
                 )
 
-        return final_image
+        # This is a complete poster on its own background. Intermediate layer
+        # alpha must not blend the poster again with the chat page background.
+        return final_image.convert("RGB") if background_composited else final_image
 
     def render_ten_pulls(
         self, results: list[Item], nickname: str = "", user_id: str = ""
@@ -690,7 +709,7 @@ class GachaRenderer:
                     fill=(255, 255, 255, 255),
                 )
 
-        return full_image
+        return full_image.convert("RGB") if bg_path_str else full_image
 
     def render_history(
         self,

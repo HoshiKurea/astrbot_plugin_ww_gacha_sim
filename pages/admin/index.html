@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f5f6f2">
+  <title>鸣潮 · 抽卡管理台</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="shell">
+    <header class="masthead">
+      <div class="brand"><span class="brand-mark">W<span>·</span>W</span><span class="brand-copy">WUTHERING WAVES<br><small>GACHA CONTROL</small></span></div>
+      <div class="header-tools"><span id="connection" class="connection">正在连接 AstrBot</span><button id="refresh" class="button ghost" type="button">刷新数据 ↗</button></div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow"><span class="line"></span> ASTRBOT PLUGIN PAGE / 01</div>
+        <div class="hero-row"><div><h1>共鸣调频<span>管理台</span></h1><p>管理卡池、物品与立绘。保存后立即用于新的抽卡请求。</p></div><div class="version-box"><span>当前配置版本</span><strong id="revision">—</strong><small id="version">等待同步</small></div></div>
+      </section>
+
+      <nav class="tabs" aria-label="管理模块"><button class="tab active" data-view="pools" type="button">01 <span>卡池配置</span></button><button class="tab" data-view="items" type="button">02 <span>角色与武器</span></button><button class="tab" data-view="resources" type="button">03 <span>资源与离线包</span></button><span class="tabs-trail">CONTROL / CONFIGURATION</span></nav>
+
+      <section id="pools-view" class="workspace">
+        <aside class="rail"><div class="section-head"><div><small>POOL DIRECTORY</small><h2>卡池列表 <span id="pool-count">0</span></h2></div><button id="new-pool" class="icon-button" title="新建卡池" type="button">＋</button></div><div id="pool-list" class="pool-list"></div><p class="rail-foot">选择卡池进行编辑。启用中的卡池需通过完整校验。</p></aside>
+        <div class="editor-panel"><div class="section-head editor-head"><div><small>CONFIGURATION EDITOR</small><h2 id="pool-editor-title">选择一个卡池</h2></div><span id="pool-state" class="state-pill">未选择</span></div>
+          <form id="pool-form" class="form-grid" autocomplete="off">
+            <div class="field"><label for="pool-name">卡池名称</label><input id="pool-name" required maxlength="80" placeholder="例如：限定角色池"><small data-error="name"></small></div>
+            <div class="field"><label for="pool-filename">文件标识</label><input id="pool-filename" required placeholder="例如：limited-character.json"><small data-error="filename"></small></div>
+            <div class="field"><label for="pool-group">物品配置组</label><input id="pool-group" required list="pool-group-options" placeholder="default"><datalist id="pool-group-options"></datalist><small data-error="config_group"></small></div>
+            <div class="field"><label for="pool-pity">保底组 ID <em>可留空</em></label><input id="pool-pity" placeholder="留空则独立保底"><small data-error="pity_group_id"></small></div>
+            <label class="switch-row"><span><strong>启用卡池</strong><small>启用前需确保候选物品和概率完整</small></span><input id="pool-enabled" type="checkbox"><i></i></label>
+            <section class="config-section full" aria-labelledby="rates-title">
+              <div class="config-heading"><div><small>01 / PROBABILITY</small><h3 id="rates-title">抽取概率</h3><p>直接调整百分比。三星基础概率自动补齐至 100%。</p></div><button id="preset-rates" class="button ghost" type="button">使用标准基础概率</button></div>
+              <div class="rate-grid">
+                <div class="rate-control" data-rate="base_5star_rate"><label for="rate-base-5star">五星基础概率</label><div class="rate-value"><input id="rate-base-5star" class="rate-number" type="number" min="0" max="100" step="any" inputmode="decimal" aria-label="五星基础概率百分比"><span>%</span></div><input class="rate-slider" type="range" min="0" max="100" step="0.1" aria-label="调整五星基础概率"></div>
+                <div class="rate-control" data-rate="base_4star_rate"><label for="rate-base-4star">四星基础概率</label><div class="rate-value"><input id="rate-base-4star" class="rate-number" type="number" min="0" max="100" step="any" inputmode="decimal" aria-label="四星基础概率百分比"><span>%</span></div><input class="rate-slider" type="range" min="0" max="100" step="0.1" aria-label="调整四星基础概率"></div>
+                <div class="rate-control" data-rate="four_star_character_rate"><label for="rate-four-character">四星中角色占比</label><div class="rate-value"><input id="rate-four-character" class="rate-number" type="number" min="0" max="100" step="any" inputmode="decimal" aria-label="四星角色占比百分比"><span>%</span></div><input class="rate-slider" type="range" min="0" max="100" step="1" aria-label="调整四星角色占比"></div>
+                <div class="rate-control" data-rate="up_5star_rate"><label for="rate-up-5star">五星 UP 概率</label><div class="rate-value"><input id="rate-up-5star" class="rate-number" type="number" min="0" max="100" step="any" inputmode="decimal" aria-label="五星 UP 概率百分比"><span>%</span></div><input class="rate-slider" type="range" min="0" max="100" step="1" aria-label="调整五星 UP 概率"></div>
+                <div class="rate-control" data-rate="up_4star_rate"><label for="rate-up-4star">四星 UP 概率</label><div class="rate-value"><input id="rate-up-4star" class="rate-number" type="number" min="0" max="100" step="any" inputmode="decimal" aria-label="四星 UP 概率百分比"><span>%</span></div><input class="rate-slider" type="range" min="0" max="100" step="1" aria-label="调整四星 UP 概率"></div>
+              </div>
+              <div id="rate-summary" class="rate-summary" role="status"></div><small class="section-error" data-error="probability_settings"></small>
+            </section>
+            <section class="config-section full" aria-labelledby="pity-title">
+              <div class="config-heading"><div><small>02 / PITY</small><h3 id="pity-title">保底与概率递增</h3><p>硬保底必定命中。软保底可按抽数区间逐段增加五星概率。</p></div><button id="preset-pity" class="button ghost" type="button">使用 80 抽预设</button></div>
+              <div class="pity-grid"><div class="field"><label for="pity-4star">四星硬保底 · 第几抽</label><input id="pity-4star" type="number" min="1" step="1" required></div><div class="field"><label for="pity-5star">五星硬保底 · 第几抽</label><input id="pity-5star" type="number" min="1" step="1" required></div></div>
+              <div class="soft-pity-heading"><strong>五星软保底区间</strong><button id="add-soft-pity" class="button ghost" type="button">＋ 添加区间</button></div>
+              <div id="soft-pity-list" class="soft-pity-list"></div><small class="section-error" data-error="probability_progression"></small>
+            </section>
+            <section class="config-section full" aria-labelledby="candidate-title">
+              <div class="config-heading"><div><small>03 / ITEM SELECTION</small><h3 id="candidate-title">候选物品与 UP</h3><p>先勾选进入卡池的物品，再为四星、五星物品指定 UP。当前配置组：<strong id="catalog-group">default</strong></p></div></div>
+              <div class="candidate-toolbar"><label for="candidate-search">搜索物品</label><input id="candidate-search" type="search" placeholder="输入名称或 ID 筛选"><label class="selected-only" for="candidate-selected-only"><input id="candidate-selected-only" type="checkbox">仅看已选</label></div>
+              <p id="catalog-status" class="catalog-status" role="status">正在读取物品列表…</p>
+              <div id="candidate-groups" class="candidate-groups"></div><small class="section-error" data-error="included_item_ids"></small><small class="section-error" data-error="rate_up_item_ids"></small>
+            </section>
+            <details id="advanced-config" class="advanced-config full"><summary>高级 JSON 编辑 <span>仅在需要调整未列出的字段时使用</span></summary><p>编辑后请点击“应用 JSON 修改”；保存前也会检查未应用的内容。</p>
+              <div class="field"><label for="pool-rates">概率设置 JSON</label><textarea id="pool-rates" rows="8" spellcheck="false"></textarea></div>
+              <div class="field"><label for="pool-progression">保底设置 JSON</label><textarea id="pool-progression" rows="8" spellcheck="false"></textarea></div>
+              <div class="field"><label for="pool-included">候选物品 JSON</label><textarea id="pool-included" rows="9" spellcheck="false"></textarea></div>
+              <div class="field"><label for="pool-up">UP 物品 JSON</label><textarea id="pool-up" rows="7" spellcheck="false"></textarea></div>
+              <button id="apply-advanced" class="button ghost" type="button">应用 JSON 修改</button>
+            </details>
+            <div class="form-actions"><button id="validate-pool" class="button ghost" type="button">校验配置</button><button id="delete-pool" class="button danger" type="button">删除卡池</button><button id="save-pool" class="button primary" type="submit">保存并生效 <span>↗</span></button></div>
+          </form>
+        </div>
+      </section>
+
+      <section id="items-view" class="workspace hidden">
+        <aside class="rail"><div class="section-head"><div><small>RESONATOR & WEAPON INDEX</small><h2>角色与武器 <span id="item-count">0</span></h2></div><button id="new-item" class="icon-button" title="登记角色或武器" type="button">＋</button></div><div class="field"><label for="item-group">配置组</label><select id="item-group"></select></div><div id="item-list" class="item-list"></div><div class="pagination"><button id="items-prev" class="button ghost" type="button">上一页</button><span id="items-page">—</span><button id="items-next" class="button ghost" type="button">下一页</button></div></aside>
+        <div class="editor-panel"><div class="section-head editor-head"><div><small>ITEM REGISTRY</small><h2 id="item-editor-title">登记角色或武器</h2></div><span class="state-pill">数据库</span></div>
+          <form id="item-form" class="form-grid" autocomplete="off">
+            <div class="field full"><label for="item-id">外部 ID <em>新建可留空，保存后固定</em></label><input id="item-id" placeholder="留空自动生成"></div>
+            <div class="field"><label for="item-name">名称</label><input id="item-name" required maxlength="80"></div>
+            <div class="field"><label for="item-rarity">星级</label><select id="item-rarity"><option value="3star">三星</option><option value="4star">四星</option><option value="5star">五星</option></select></div>
+            <div class="field"><label for="item-type">类型</label><select id="item-type"><option value="character">角色</option><option value="weapon">武器</option></select></div>
+            <div class="field"><label for="item-affiliation">所属类型</label><input id="item-affiliation" placeholder="例如：长刃 / 热熔"></div>
+            <section class="portrait-picker full"><div id="item-preview"></div><div><small>ARTWORK LIBRARY</small><h3>看图选择立绘</h3><p>从指定版本的素材库选择，无需寻找或复制路径。</p><button id="browse-art" class="button primary" type="button">浏览版本素材 ↗</button><p>也可在下方上传本地图片，或填写已有地址。</p></div></section>
+            <div class="field full"><label for="item-portrait">立绘地址 <em>HTTP(S) 或受管资源</em></label><input id="item-portrait" placeholder="选图后自动保存为本地地址"><small>本地地址在抽卡时无需访问图片网站。</small></div>
+            <div class="field full"><button id="localize-portrait" class="button ghost" type="button">将已有远程立绘保存到插件本地</button></div>
+            <div class="field full upload-row"><label for="item-upload">上传本地立绘</label><input id="item-upload" type="file" accept="image/png,image/jpeg,image/webp"><small>仅 PNG、JPEG、WebP，最大 10 MiB / 2000 万像素</small></div>
+            <div class="form-actions"><button id="delete-item" class="button danger" type="button">删除物品</button><button class="button primary" type="submit">保存物品 <span>↗</span></button></div>
+          </form>
+        </div>
+      </section>
+      <section id="resources-view" class="workspace hidden" aria-label="卡池资源与离线包"></section>
+    </main>
+    <footer><span>WW / GACHA SIMULATOR</span><span>通过 AstrBot 控制台安全连接 · <span id="health">检查中</span></span></footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="confirm-overlay" class="confirm-overlay hidden" role="presentation">
+    <div class="confirm-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <small>CONFIRM ACTION</small><h2 id="confirm-title">确认删除</h2><p id="confirm-message"></p>
+      <div><button id="confirm-cancel" class="button ghost" type="button">取消</button><button id="confirm-accept" class="button danger" type="button">确认删除</button></div>
+    </div>
+  </div>
+</body>
+</html>

@@ -33,6 +33,7 @@ class CardPoolConfig:
     probability_progression: dict[str, dict[str, Any]]  # 概率递增配置
     config_group: str = "default"  # 配置组名称，用于确定使用哪个物品表
     enable: bool = True  # 是否启用该配置，默认为True
+    pity_group_id: str = ""  # Empty means the pool has its own pity group.
 
     def __post_init__(self):
         """初始化后处理"""
@@ -103,6 +104,7 @@ class CardPoolConfig:
             "probability_progression",
             "config_group",
             "enable",
+            "pity_group_id",
         }
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
         # 如果没有config_group字段，默认为'default'
@@ -137,6 +139,7 @@ class CardPoolManager:
         self._configs: dict[str, CardPoolConfig] = {}  # 内存中的配置数据，键为 cp_id
         self._file_path_to_cp_id: dict[str, str] = {}  # 文件路径到 cp_id 的映射
         self._lock = threading.Lock()  # 保护 _configs 和 _file_path_to_cp_id 的线程安全
+        self.validator = None
         # 确保配置目录存在
         self._ensure_dir_exists()
         # 初始化默认配置
@@ -148,7 +151,7 @@ class CardPoolManager:
         """初始化默认配置"""
         try:
             # 检查配置目录下是否有json文件
-            has_json = next(self.config_dir.glob("*.json"), None) is not None
+            has_json = next(self.config_dir.rglob("*.json"), None) is not None
 
             if has_json:
                 return
@@ -267,74 +270,75 @@ class CardPoolManager:
             加载的配置字典，键为 cp_id，值为配置数据类实例
         """
         try:
-            with self._lock:
-                self._configs.clear()
-                self._file_path_to_cp_id.clear()
+            next_configs: dict[str, CardPoolConfig] = {}
+            next_paths: dict[str, str] = {}
 
-                # 深度扫描配置目录及其子目录
-                for root, dirs, files in os.walk(self.config_dir):
-                    for filename in files:
-                        if filename.endswith(".json"):
-                            # 跳过文件名为 .json 的配置文件（即 .json 后缀前是空白字符）
-                            if filename == ".json":
-                                logger.debug("跳过文件名为 .json 的配置文件")
-                                continue
+            # 深度扫描配置目录及其子目录
+            for root, dirs, files in os.walk(self.config_dir):
+                for filename in files:
+                    if filename.endswith(".json"):
+                        # 跳过文件名为 .json 的配置文件（即 .json 后缀前是空白字符）
+                        if filename == ".json":
+                            logger.debug("跳过文件名为 .json 的配置文件")
+                            continue
 
-                            # 计算相对于配置目录的路径
-                            full_path = os.path.join(root, filename)
-                            rel_path = os.path.relpath(full_path, self.config_dir)
-                            file_path = rel_path[
-                                :-5
-                            ]  # 移除.json后缀，将路径分隔符统一为正斜杠
-                            file_path = file_path.replace("\\", "/")
+                        # 计算相对于配置目录的路径
+                        full_path = os.path.join(root, filename)
+                        rel_path = os.path.relpath(full_path, self.config_dir)
+                        file_path = rel_path[
+                            :-5
+                        ]  # 移除.json后缀，将路径分隔符统一为正斜杠
+                        file_path = file_path.replace("\\", "/")
 
-                            try:
-                                with open(full_path, encoding="utf-8") as f:
-                                    config_data = json.load(f)
+                        try:
+                            with open(full_path, encoding="utf-8") as f:
+                                config_data = json.load(f)
 
-                                    # 跳过没有名称的卡池配置
-                                    if (
-                                        "name" not in config_data
-                                        or not config_data["name"]
-                                        or not config_data["name"].strip()
-                                    ):
-                                        logger.warning(
-                                            f"跳过没有名称的配置文件: {file_path}"
-                                        )
-                                        continue
+                                # A malformed pool must not silently disappear on reload.
+                                if (
+                                    "name" not in config_data
+                                    or not config_data["name"]
+                                    or not config_data["name"].strip()
+                                ):
+                                    raise ValueError(f"卡池名称无效: {file_path}")
 
-                                    # 确保cp_id存在，根据相对路径+卡池名称生成唯一ID
-                                    if "cp_id" not in config_data:
-                                        config_data["cp_id"] = self._generate_cp_id(
-                                            file_path, config_data["name"]
-                                        )
-                                    # 转换为数据类实例
-                                    config_instance = CardPoolConfig.from_dict(
-                                        config_data
+                                # 确保cp_id存在，根据相对路径+卡池名称生成唯一ID
+                                if "cp_id" not in config_data:
+                                    config_data["cp_id"] = self._generate_cp_id(
+                                        file_path, config_data["name"]
                                     )
-                                    self._configs[config_instance.cp_id] = (
-                                        config_instance
-                                    )
-                                    self._file_path_to_cp_id[file_path] = (
-                                        config_instance.cp_id
-                                    )
-                                    logger.info(
-                                        f"已加载配置文件: {file_path}, cp_id: {config_instance.cp_id}"
-                                    )
-                            except json.JSONDecodeError as e:
-                                logger.error(f"JSON格式错误: {file_path} - {e}")
-                                raise ValueError(f"配置文件 {file_path} 格式错误: {e}")
-                            except OSError as e:
-                                logger.error(f"读取文件失败: {file_path} - {e}")
-                                raise OSError(f"读取配置文件 {file_path} 失败: {e}")
-                            except Exception as e:
-                                logger.error(f"处理配置文件 {file_path} 失败: {e}")
-                                raise RuntimeError(
-                                    f"处理配置文件 {file_path} 失败: {e}"
+                                # 转换为数据类实例
+                                config_instance = CardPoolConfig.from_dict(
+                                    config_data
                                 )
+                                if config_instance.cp_id in next_configs:
+                                    raise ValueError(f"重复卡池 ID: {config_instance.cp_id}")
+                                next_configs[config_instance.cp_id] = config_instance
+                                next_paths[file_path] = config_instance.cp_id
+                                logger.info(
+                                    f"已加载配置文件: {file_path}, cp_id: {config_instance.cp_id}"
+                                )
+                        except json.JSONDecodeError as e:
+                            logger.error(f"JSON格式错误: {file_path} - {e}")
+                            raise ValueError(f"配置文件 {file_path} 格式错误: {e}")
+                        except OSError as e:
+                            logger.error(f"读取文件失败: {file_path} - {e}")
+                            raise OSError(f"读取配置文件 {file_path} 失败: {e}")
+                        except Exception as e:
+                            logger.error(f"处理配置文件 {file_path} 失败: {e}")
+                            raise RuntimeError(
+                                f"处理配置文件 {file_path} 失败: {e}"
+                            )
 
-            logger.info(f"共加载 {len(self._configs)} 个配置文件")
-            return self._configs.copy()
+            if self.validator is not None:
+                for candidate in next_configs.values():
+                    if candidate.enable:
+                        self.validator(candidate)
+            with self._lock:
+                self._configs = next_configs
+                self._file_path_to_cp_id = next_paths
+            logger.info(f"共加载 {len(next_configs)} 个配置文件")
+            return next_configs.copy()
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
             raise RuntimeError(f"加载配置文件失败: {e}")

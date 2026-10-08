@@ -11,17 +11,14 @@
   },
   "rate_up_item_ids": {
     "4star": [
-      "cha_秧秧_a5b4",
-      "cha_卜灵_d5f7",
-      "cha_秋水_98e5",
       "cha_秧秧_400c",
       "cha_散华_4888",
       "cha_白芷_5511"
     ],
     "5star": [
-      "cha_守岸人_ff48",
       "cha_莫宁_8b8d"
-    ]
+    ],
+    "3star": []
   },
   "included_item_ids": {
     "3star": [
@@ -76,12 +73,6 @@
       "wea_核熔星盘_8c7b"
     ],
     "5star": [
-      "cha_守岸人_ff48",
-      "cha_凌阳_9dec",
-      "cha_安可_11de",
-      "cha_鉴心_a8f5",
-      "cha_卡卡罗_656b",
-      "cha_维里奈_c2c4",
       "cha_莫宁_8b8d",
       "cha_凌阳_c697",
       "cha_安可_c422",

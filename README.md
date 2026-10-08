@@ -1,301 +1,216 @@
-<div align="center">
+# AstrBot 鸣潮模拟抽卡
 
-# 🎰 AstrBot 鸣潮抽卡模拟插件
+一个面向 AstrBot 的鸣潮抽卡模拟插件。它提供可配置卡池、保底与 UP 机制、图片结果、抽卡记录，以及由 AstrBot Plugin Pages 托管的管理页面。
 
-**一个基于 AstrBot 的鸣潮模拟抽卡插件，支持自定义卡池概率、图像渲染、WebUI 可视化管理。**
+当前版本：`v1.4.0`
+运行要求：AstrBot `>=4.27.5`、Python `>=3.12`
 
-<p>
-  <a href="https://github.com/Ruafafa/astrbot_plugin_ww_gacha_sim/releases"><img src="https://img.shields.io/github/v/release/Ruafafa/astrbot_plugin_ww_gacha_sim?style=for-the-badge&logo=semantic-release" alt="Version"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Status-✅%20Active%20Development-green?style=for-the-badge" alt="Status"></a>
-  <a href="#"><img src="https://img.shields.io/badge/Python-3.10+-blue?style=for-the-badge&logo=python" alt="Python"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-yellow?style=for-the-badge" alt="License"></a>
-</p>
+## 功能
 
-<p>
-  <img src="https://img.shields.io/badge/🎯%20自定义卡池概率-brightgreen?style=flat-square" alt="Custom Pool">
-  <img src="https://img.shields.io/badge/🖼️%20图像渲染输出-blue?style=flat-square" alt="Image Render">
-  <img src="https://img.shields.io/badge/🕸️%20WEBUI%20可视化配置-purple?style=flat-square" alt="WebUI">
-  <img src="https://img.shields.io/badge/📊%20多配置组管理-orange?style=flat-square" alt="Config Groups">
-</p>
+- 单抽、十连、卡池选择、保底状态和历史记录。
+- 自定义卡池概率、软保底、硬保底、UP 保证和保底组。
+- 抽卡结果、历史记录和卡池详情的图片渲染；首次缺少立绘时先发文字，再补发完整图片。
+- AstrBot 原生管理页面：卡池、物品、配置组和立绘资源管理。
+- 立绘素材支持远程地址、管理页面导入和压缩后的本地 WebP；兼容已有 PNG。
+- 卡池立绘一键准备、进度与失败重试；离线资源 ZIP 导出、导入。
+- 立绘首次下载支持 GitHub Raw、`cdn.jsdelivr.net` 和 `fastly.jsdelivr.net` 回退；普通用户无需配置系统代理。
+- SQLite 持久化抽卡记录和保底状态，支持迁移备份、并发写入和旧身份认领。
+- Windows、Linux 和 Python 3.12/3.14 测试覆盖。
 
-</div>
+## 安装
 
----
+### AstrBot 仪表板安装
 
-## 📖 目录 (Table of Contents)
+在 AstrBot 仪表板的插件安装页搜索 `astrbot_plugin_ww_gacha_sim`，或者填入仓库地址：
 
-- [✨ 核心特性](#✨-核心特性)
-- [🚀 安装插件](#🚀-安装插件)
-- [⚙️ 插件配置项](#⚙️-插件配置项)
-- [📨 基础指令](#📨-基础指令)
-- [📸 指令演示](#📸-指令演示)
-- [🕸️ WEBUI](#🕸️-webui)
-  - [🔄 自动启动](#🔄-自动启动)
-  - [🗂️ 卡池配置界面](#🗂️-卡池配置界面)
-  - [✏️ 卡池内容编辑](#✏️-卡池内容编辑)
-  - [📦 卡池物品管理](#📦-卡池物品管理)
-  - [📝 卡池物品注册](#📝-卡池物品注册)
-- [⭐ 感谢](#⭐-感谢)
-
----
-
-> [!WARNING]
-> （推荐）从 `1.0.x` 升级到 `1.1.0` 版本时，建议**优先通过** AstrBot 仪表盘卸载插件并勾选「**同时删除插件持久化数据**」，重新安装到最新版。**若已经升级**，可手动删除原先版本的插件持久化数据（位于 `data\plugin_data\astrbot_plugin_ww_gacha_sim`）后重载插件，以免升级后出现意想不到的报错。
-
----
-
-## ✨ 核心特性
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### 🎲 模拟抽卡
-- **单抽 & 十连**：支持单抽和十连两种抽卡模式。
-- **自定义概率**：可自由配置各稀有度的抽取概率。
-- **保底机制**：内置软保底 + 硬保底机制，真实还原抽卡体验。
-
-</td>
-<td width="50%" valign="top">
-
-### 🎨 图像渲染
-- **精美图片**：将抽卡结果渲染为精美图片，支持单抽、十连、历史记录、卡池详情等多种场景。
-- **立绘展示**：自动获取并展示角色/武器立绘。
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-### 🕸️ WEBUI 可视化
-- **卡池配置管理**：通过 WebUI 可视化创建、编辑、启用/禁用卡池配置。
-- **物品注册**：支持手动填写表单、Wiki 数据同步、解包源直连等多种方式注册抽卡物品。
-- **裁剪工具**：内置立绘裁剪与渐变处理，适配抽卡界面比例。
-
-</td>
-<td width="50%" valign="top">
-
-### 📊 多配置组
-- **多卡池管理**：支持同时管理多个卡池配置，随时切换。
-- **配置组隔离**：不同配置组下的物品数据相互隔离，适合多服或多人场景。
-- **持久化状态**：保底计数、UP 状态跨会话保留。
-
-</td>
-</tr>
-</table>
-
----
-
-## 🚀 安装插件
-
-### 🖥️ 自动安装
-
-通过 AstrBot 仪表板安装插件，搜索 `astrbot_plugin_ww_gacha_sim`。
-
-### 🛠️ 手动安装
-
-前往 `AstrBot\data\plugins` 目录执行以下命令：
-
-```bash
-git clone https://github.com/Ruafafa/astrbot_plugin_ww_gacha_sim.git ./data/plugins/astrbot_plugin_ww_gacha_sim
+```text
+https://github.com/HoshiKurea/astrbot_plugin_ww_gacha_sim
 ```
 
-或下载仓库主分支源代码后解压到该目录。
+安装后重载插件。AstrBot 会处理宿主依赖，插件的直接依赖位于 `requirements.txt`。
 
----
+通过 ZIP 升级已有安装时，宿主可能提示同名插件目录已存在。请先备份插件数据和配置，卸载旧插件时不要勾选“删除配置”和“删除数据”，再安装新 ZIP 并重载。升级后可用 `/wwg 帮助` 检查新入口。
 
-## ⚙️ 插件配置项
+### 手动安装
 
-通过 AstrBot 仪表板（或直接编辑 `data/cmd_config.json`）调整插件配置：
+在 AstrBot 根目录执行：
 
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `enable_rendering` | bool | `true` | 是否开启渲染功能，启用或禁用抽卡结果的图片渲染 |
-| `enable_history_recording` | bool | `true` | 是否保存用户的抽卡历史记录 |
-| `enable_webui` | bool | `true` | 是否在插件加载时自动启动 WebUI 管理界面 |
-| `webui_port` | int | `5000` | WebUI 的运行端口号，范围 1024-65535 |
-| `save_rendered_results` | bool | `false` | 是否将渲染的抽卡结果图片保存到 data 目录下 |
-| `cache_cleanup_interval` | int | `24` | 资源缓存自动清理的时间间隔（单位：小时），范围 1-720 |
-| `enable_proxy` | bool | `false` | 是否启用网络代理，开启后需配置有效的代理地址 |
-| `proxy_url` | string | `""` | 网络代理地址，例如 `http://127.0.0.1:7890` |
+```bash
+git clone https://github.com/HoshiKurea/astrbot_plugin_ww_gacha_sim.git data/plugins/astrbot_plugin_ww_gacha_sim
+```
 
----
+升级现有安装时，先备份 `data/plugin_data/astrbot_plugin_ww_gacha_sim/`，再更新插件并重载。插件目录下应直接包含 `main.py`、`metadata.yaml`、`src/` 和 `pages/admin/`。
 
-## 📮 基础指令
+## 第一次使用
 
-| 指令 | 别名 | 功能 |
-|------|------|------|
-| `/卡池` | `/卡池列表` `/查看卡池` | 查看所有可用卡池 |
-| `/唤取 <卡池ID/名称>` | `/选抽` `/设置卡池` `/选择卡池` | 设置用户的默认卡池 |
-| `/单抽 <卡池ID/名称>` | `/单次抽卡` `/抽卡` `/单次唤取` | 执行单次抽卡 |
-| `/十抽 <卡池ID/名称>` | `/十连` `/10抽` `/10连` | 执行十连抽 |
-| `/唤取记录 <卡池ID/页号>` | `/抽卡记录` `/查看抽卡` `/抽卡历史` | 查看历史抽卡记录（支持分页） |
-| `/卡池详细 <卡池ID/名称>` | — | 查看指定卡池的详细配置 |
-| `/重载卡池` | `/刷新卡池` | 重新加载所有卡池配置文件 |
-| `/抽卡帮助` | `/鸣潮帮助` `/wgs_help` | 显示本插件所有可用命令 |
+1. 在 AstrBot 控制台打开插件详情中的 `admin` 管理页面。
+2. 在“物品”页面登记角色和武器；可以浏览版本素材，也可以上传本地 PNG、JPEG 或 WebP 立绘。
+3. 在“卡池”页面新建或导入卡池，选择候选物品，校验后保存并启用。
+4. 在聊天中发送 `/wwg 卡池`，按列表编号选择卡池，然后进行抽卡。
 
----
+新卡池默认停用。启用前需要通过配置校验，并且三个星级都必须有候选物品。
 
-## 📸 指令演示
+## 指令
 
-> 以下图片均通过插件的渲染功能自动生成。
+统一入口使用 `/wwg`（Wuthering Waves Gacha）指令组；旧入口 `/鸣潮` 和 `/ww抽卡` 作为兼容别名保留。
 
-`/卡池` — 查看所有可用卡池
+单独发送 `/wwg` 会显示 AstrBot 的指令组提示；完整使用帮助可通过 `/wwg 帮助` 或 `/wwg_help` 查看，原有 `/wgs_help` 仍然可用。下表使用默认唤醒前缀 `/`；如果宿主修改了前缀，请使用实际配置的前缀。
 
-![卡池列表](.github/image/cp.png)
+| 指令 | 用途 |
+| --- | --- |
+| `/wwg 帮助` | 查看完整帮助和兼容别名 |
+| `/wwg 卡池` | 列出启用卡池、临时编号和卡池 ID |
+| `/wwg 选择 <编号\|ID\|名称>` | 设置个人默认卡池 |
+| `/wwg 单抽 [ID\|名称]` | 单次抽卡，省略参数使用默认卡池 |
+| `/wwg 十连 [ID\|名称]` | 十连抽卡 |
+| `/wwg 记录 [ID\|名称] [页码]` | 查看历史，每页 10 条 |
+| `/wwg 保底 [ID\|名称]` | 查看五星、四星保底和 UP 保证状态 |
+| `/卡池详细 <ID\|名称>` | 查看卡池状态、概率和候选数量 |
+| `/重载卡池` | 管理员重新发布磁盘中的卡池配置 |
+| `/wwg 诊断` | 管理员查看数据库、字体、缓存和渲染队列状态 |
+| `/认领旧抽卡 <旧ID> <目标ID> [目标平台ID]` | 管理员迁移升级前的历史和保底 |
 
-`/唤取 <卡池ID/名称>` — 设置用户的默认卡池
+常用兼容别名包括 `/卡池`、`/唤取`、`/单抽`、`/十抽`、`/十连`、`/抽卡记录`、`/抽卡保底`、`/抽卡帮助`。实际名称以 AstrBot 指令管理页为准。
 
-![设置卡池](.github/image/gache_set.png)
+示例流程：
 
-`/单抽` — 执行单次抽卡
+```text
+/wwg 卡池
+/wwg 选择 1
+/wwg 十连
+/wwg 保底
+/wwg 记录
+```
 
-![单抽](.github/image/single.png)
+历史记录只填写一个数字时按页码处理，例如 `/wwg 记录 2`。指定卡池翻页时使用 `/wwg 记录 pool-id 2`。
 
-`/十抽` — 执行十连抽
+## 立绘资源与离线使用
 
-![十连](.github/image/ten.png)
+管理页面的版本素材浏览器读取 `TomyJan/WutheringWaves-UIResources` 的固定版本内容。首次下载依次尝试：
 
-`/抽卡记录 <卡池ID/名称>` — 查看历史抽卡记录
+1. GitHub Raw 原地址；
+2. `cdn.jsdelivr.net` 公共镜像；
+3. `fastly.jsdelivr.net` 公共镜像。
 
-![抽卡记录](.github/image/history.png)
+下载器会记住可用的素材源，后续优先复用，减少重复等待失效源。镜像只用于内置素材仓库，普通用户不需要设置系统代理。管理员在物品页面点击“保存到插件本地”或上传图片后，文件会以压缩后的受管 WebP 保存在 `data/plugin_data/astrbot_plugin_ww_gacha_sim/portraits/`，物品地址会变为 `local:` 地址。之后抽卡渲染直接读取本地文件。已有 PNG 文件与地址继续兼容。
 
-`/卡池详细 <卡池ID/名称>` — 查看指定卡池的详细配置
+首次抽到尚未缓存的远程立绘时，插件先发送真实文字结果，再以默认 3 路并发下载所需图片；同一资源只下载一次，资源齐全后才补发完整图片。下载不占用渲染线程，也不计入默认 8 秒的纯图片渲染超时。
 
-![卡池详细](.github/image/cp_detail.png)
+资源等待默认最多 45 秒，可在配置中调整。未能就绪时会保留文字结果并说明原因；超时的下载继续缓存供后续使用，不会重抽，也不会发送缺少立绘的半成品图片。网络完全不可用时，可以在管理页面上传本地立绘。
 
----
+新立绘按最长边 1280 像素、质量 90 的透明 WebP 保存，远程缓存保留 30 天并受缓存容量上限约束。此压缩发生在下载后，不能减少上游原始 PNG 首次传输的字节数；它减少后续磁盘占用、图片解码与重复下载。安装包使用压缩背景和无损精灵图集，普通结果使用 JPEG，确有透明像素的结果保留 PNG。
 
-## 🕸️ WEBUI
+### 提前准备卡池与离线资源包
 
-### 🔄 自动启动
+打开管理页面的“资源与离线包”，选择卡池后点击“准备卡池资源”。插件只准备该卡池引用的不同立绘，相同地址共享下载；页面显示当前可用数、已离线保存数、进度及失败原因。可以停止准备或重试失败项，已经就绪的资源会复用。任务在后台运行，离开页面不影响准备；准备不会启用停用卡池，也不会产生抽卡记录。
 
-插件加载时将根据配置项自动启动 WebUI。在 AstrBot 仪表板中设置以下配置：
+资源齐全后点击“导出离线 ZIP”。在无法联网的 AstrBot 中打开相同页面，选择该 ZIP 导入即可。两端应使用相同的卡池和物品配置；资源包只传递立绘，不包含或修改卡池概率、用户历史与保底状态。
 
-- `enable_webui`（默认 `true`）：插件加载时自动在后台启动 WebUI
-- `webui_port`（默认 `5000`）：指定 WebUI 的运行端口
+准备和离线导入的资源保存在插件数据目录的 `portraits/offline/`，长期保留，不受普通缓存 30 天有效期影响。物品地址无需修改；素材预览、保存到本地和抽卡都会优先使用已准备的资源。普通远程预览也共享 30 天的完整图片和缩略图缓存，避免预览后又重复下载。
 
-### 🗂️ 卡池配置界面
+单个离线包最多 64 MiB、500 张立绘，解压总量最多 256 MiB。导入会校验目录、格式、尺寸及校验和，整包验证通过后才保存素材。每个插件同时最多运行两个资源任务；图片后台处理和数据库任务另有容量限制，满载会提示繁忙。
 
-WEBUI 的卡池配置页默认展示 `default` 配置组下的所有卡池配置，你可以通过左上角的选择配置组来切换不同的配置组。如果你想添加新的配置组，只需要在新建的卡池配置中指定新的配置组名称即可自动创建。
+## 配置
 
-你可以在该界面增添、删除、启用、禁用不同的卡池配置，也可以直接编辑 JSON 文件来修改卡池配置（不建议这样操作）。
+配置文件由 AstrBot 管理，位置为 `data/config/astrbot_plugin_ww_gacha_sim_config.json`。优先使用插件配置页；修改后需要重载插件。
 
-卡池配置文件默认位于 `card_pool_configs/` 目录下，支持 JSON 格式。
+| 配置项 | 默认值 | 说明 |
+| --- | ---: | --- |
+| `enable_rendering` | `true` | 是否发送抽卡图片 |
+| `enable_history_recording` | `true` | 是否保存历史记录 |
+| `default_pool_id` | `""` | 未选择卡池时使用的默认 ID |
+| `save_rendered_results` | `false` | 是否保存压缩后的抽卡结果图片 |
+| `cache_cleanup_interval` | `24` | 资源缓存清理间隔，单位为小时 |
+| `cache_max_mb` | `512` | 缓存容量上限，单位为 MiB |
+| `rendered_result_retention_days` | `7` | 已保存结果图片的保留天数 |
+| `font_path` | `""` | 自定义中文字体绝对路径，留空自动查找 |
+| `render_workers` | `2` | 并发图片渲染数 |
+| `render_queue_limit` | `20` | 等待渲染队列上限 |
+| `render_timeout_seconds` | `8` | 仅计算图片绘制与编码的等待时间 |
+| `portrait_download_workers` | `3` | 立绘并发下载数，范围 1–6 |
+| `portrait_wait_timeout_seconds` | `45` | 先发文字后等待完整立绘的秒数，范围 5–120 |
+| `database_queue_limit` | `64` | 抽卡与管理操作的后台等待队列上限，范围 0–256 |
+| `enable_proxy` | `false` | 是否为远程资源启用插件代理 |
+| `proxy_url` | `""` | 代理地址，例如 `http://127.0.0.1:7890` |
 
-![卡池配置界面](.github/image/webui.png)
+抽卡数据、卡池配置、备份和本地立绘均位于 `data/plugin_data/astrbot_plugin_ww_gacha_sim/`。升级前请备份整个目录。关闭历史记录不会关闭保底状态保存。
 
-> [!NOTE]
-> 虽然 WEBUI 中只展示了选中配置组下的卡池配置，但这不意味着其他配置组下的卡池配置不会被用户的 `/卡池` 指令展示，**只有通过启用、禁用卡池配置，才会在 `/卡池` 指令中选择展示。**
->
-> 同时，**卡池的状态只会在插件加载时生效**，如果在插件运行过程中修改了卡池的状态（比如启用状态或者概率参数），必须重载插件后才可应用最新状态。
+## 管理页面
 
-### ✏️ 卡池内容编辑
+页面由 AstrBot Plugin Pages 托管，不再启动独立 WebUI，也不需要额外端口或密码。管理 API 复用 AstrBot 的插件鉴权。
 
-点击指定卡池的编辑按钮，即可进入编辑页面。这里涉及到的物品，即为卡池中的获取物，如角色、武器。编辑界面的卡池配置说明如下图所示：
+- 卡池保存采用版本号，两个管理页面同时编辑时会拒绝过期提交。
+- 删除物品前会检查卡池引用；被引用物品不能删除或直接修改星级、类型。
+- 立绘上传会校验格式、文件大小和像素数，并缩放、重新编码为受管 WebP。
+- 管理页数据库与文件操作在后台队列执行；卡池及物品写入与抽卡事务串行处理，聊天读取已发布的配置快照。
+- 请求取消不会提前释放仍在工作的任务容量；排队期间卡池被停用或配置变化时，抽卡会在提交前拒绝该旧请求。
+- 卡池配置直接保存后即可供后续抽卡使用；手动修改磁盘 JSON 后请发送 `/重载卡池`。
 
-![卡池内容编辑](.github/image/edit.png)
+### 页面截图
 
-### 📦 卡池物品管理
+以下截图来自原生管理页面的实际操作流程：
 
-在编辑页面，你可以添加、删除、修改卡池中的物品。
+![卡池配置](.github/image/admin-pools.webp)
 
-![卡池物品管理](.github/image/items.png)
+![角色与武器登记](.github/image/admin-items.webp)
 
-每个物品都有以下属性：
+![版本立绘素材库](.github/image/admin-portrait-library.webp)
 
-| 属性 | 说明 |
-|------|------|
-| `external_id` | 物品的唯一标识符，用于在卡池配置中引用物品 |
-| `name`（名称） | 物品的名称，用于显示在抽卡结果中 |
-| `type`（类型） | 物品的类型，如角色、武器等 |
-| `rarity`（稀有度） | 物品的稀有度，如五星、四星等 |
-| `affiliated_type`（附属类型） | 物品的关联类型，如属性（气动、冷凝）或武器类型（迅刀） |
-| `portrait_url`（立绘 URL） | 物品渲染时所用立绘的图片地址 |
+## 开发与验证
 
-### 📝 卡池物品注册
+安装开发依赖：
 
-在左侧导航栏点击「物品注册」即可进入物品注册页面。该页面提供多种物品来源途径，你可以组合使用进行注册：
+```bash
+python -m pip install -r requirements-dev.txt
+```
 
-![物品注册](.github/image/regist_item.png)
+运行 Python 测试和静态检查：
 
-#### 📋 手动填写表单
+```bash
+python -m compileall -q main.py src
+python -m ruff check main.py src tests
+python -m pytest -q
+```
 
-页面左侧为主表单，支持填写以下字段：
+安装真实 AstrBot 的环境还需要验证消息管线，避免只直接调用处理函数而遗漏指令匹配和聊天插件干扰：
 
-| 字段 | 说明 |
-|------|------|
-| 物品名称 | 物品的显示名称 |
-| 品质等级 | 五星 / 四星 / 三星 |
-| 类型 | 角色 / 武器 |
-| 附属类型 | 关联的属性或武器类型（如气动、迅刀） |
-| 立绘 URL | 物品立绘图片的直链地址 |
+```bash
+python tests/runtime_commands.py
+python tests/runtime_smoke.py
+python tests/runtime_resources.py
+```
 
-立绘图片支持裁剪处理。填入 URL 后，图片预览区提供以下操作：
+`ASTRBOT_SOURCE_ROOT` 可指定宿主源码目录。运行检查均使用临时数据；消息管线检查覆盖回复发送、事件终止、指令别名、参数、管理员权限、唤醒前缀和插件禁用范围。资源检查使用真实宿主 Web 请求、文件响应和上传接口，验证共享下载、离线包导入、缓存清空后的离线预览及十连渲染。
 
-- **拖拽移动、滚轮缩放** — 调整裁剪框位置和大小
-- **底部渐变透明** — 勾选后可在裁剪时为图片底部添加渐变透明效果
-- **处理并保存** — 将裁剪后的图片（404×560px，PNG 格式）上传保存至本地
+构建管理页面需要 Node.js 20 或更高版本：
 
-> [!NOTE]
-> 必须完成「处理并保存」步骤后，才能提交注册表单，否则按钮不可点击。
+```bash
+cd webui
+npm ci
+npm run check
+npm run build
+```
 
-#### 🌐 从库街区 Wiki 同步
+构建产物位于 `pages/admin/`，发布插件时需要和 `webui/` 源码一起保留。
 
-页面右侧面板可从库街区（Kurobbs）Wiki 自动拉取角色和武器数据：
+## 数据迁移与问题排查
 
-1. 点击右上角刷新按钮（⟳）获取最新物品列表
-2. 切换「角色」/「武器」标签页浏览
-3. 点击任意物品，自动将名称、稀有度、类型、附属类型及立绘 URL 填入左侧表单
+- 首次升级会在插件数据目录生成 SQLite 和卡池配置备份；迁移失败时插件不会继续写入抽卡数据。
+- 旧版本没有平台实例信息的记录不会自动绑定到新用户，管理员需要使用 `/认领旧抽卡` 明确指定归属。
+- 图片生成失败不会重抽，插件会返回已经提交的文字结果。
+- 立绘加载失败时，先在管理页面保存为本地文件；若必须使用远程 URL，再检查插件代理或网络连接。
+- `/wwg 诊断` 可用于查看数据库可写性、字体、缓存和渲染队列。
 
-该功能通过调用 Kurobbs Wiki API（`catalogue 1105` 角色、`catalogue 1106` 武器）获取条目详情，并解析元素属性与武器类型字段。
+### 指令被当作普通对话
 
-#### 📦 从解包源获取立绘
+1. 检查插件列表中的加载状态和日志，确认当前加载的是 `v1.4.0`，并看到“鸣潮模拟抽卡插件已初始化”。安装 ZIP 后需要重载插件；加载失败时指令不会注册。
+2. 在**发生问题的平台或会话对应的配置文件**中检查 `wake_prefix`。使用 `/wwg 帮助` 时，应保留 `/`，并把它排在空字符串前面，例如 `["/", ""]`。`[""]` 或 `["", "/"]` 会保留消息中的 `/`，导致标准指令匹配失败；如果只配置 `!`，应发送 `!wwg 帮助`。
+3. 检查该配置的插件启用范围 `plugin_set`，以及会话级插件开关，确认包含 `astrbot_plugin_ww_gacha_sim`。插件全局已启用不代表每个配置和会话都已启用。
+4. 在 AstrBot 的指令管理页确认 `wwg` 指令组与 `wgs_help`（含 `wwg_help` 别名）已启用，且没有被重命名。先测试 `/wwg 帮助` 和 `/wwg_help`，再测试 `/wwg 卡池`；旧入口 `/鸣潮 帮助` 和 `/ww抽卡 帮助` 仍然可用。
+5. 如果已返回插件回复，却还出现其他聊天插件的回复，升级到 `v1.2.1` 或更高版本。插件会在发送回复后终止传播，防止低优先级监听器继续处理；更早执行并主动拦截事件的其他插件仍需按其配置排查。
 
-右侧另一个面板可从默认解包源仓库直接获取游戏抽卡立绘：
+唤醒前缀由 AstrBot 统一处理，优先级只决定已匹配处理器的执行顺序。插件不会擅自修改宿主前缀、启用范围或指令开关。相关规则见 [AstrBot 官方指令说明](https://docs.astrbot.app/use/command.html)。
 
-1. 点击「连接仓库并获取立绘」按钮加载立绘列表
-2. 面板内以缩略图网格展示所有可用立绘
-3. 点击任意立绘，自动将对应的图片 URL 填入表单的「立绘 URL」字段
+## 许可证
 
-默认解包源为 [TomyJan/WutheringWaves-UIResources](https://github.com/TomyJan/WutheringWaves-UIResources) 仓库中的抽卡立绘目录（`T_Luckdraw*_UI.png`），通过 GitHub 代理（gh-proxy.com）加速加载。
-
-立绘获取后配合裁剪工具处理即可用于注册。
-
-#### ✅ 注册提交
-
-确认左侧表单信息填写完整后，点击「完成注册」提交。注册成功后表单将自动重置，可继续注册下一个物品。
-
-> [!NOTE]
-> 各个配置组下的物品列表是相互隔离的，即一个配置组下的物品不会影响到其他配置组下的物品。
->
-> 在首次使用或创建配置组时，如果该配置组中没有物品，插件会自动从 `default.csv` 导入默认物品数据。
-
-> [!WARNING]
-> 插件立绘的获取来自于默认解包源：`https://github.com/TomyJan/WutheringWaves-UIResources`。为确保渲染结果图正常显示，建议国内用户开启系统代理，或将**立绘获取路径替换为本地路径**，或**采用 GitHub 代理加速服务**（如 gh-proxy）。
-
----
-
-<div align="center">
-
-## ⭐ 感谢
-
-### 🌟 如果这个项目对您有帮助，请考虑给一个 Star ⭐
-
-<a href="https://github.com/Ruafafa/astrbot_plugin_ww_gacha_sim">
-  <img src="https://img.shields.io/github/stars/Ruafafa/astrbot_plugin_ww_gacha_sim?style=social" alt="GitHub Stars">
-</a>
-
-<br>
-
-<a href="https://github.com/Ruafafa/astrbot_plugin_ww_gacha_sim/issues"><img src="https://img.shields.io/badge/报告问题-🐛-red?style=for-the-badge"></a>
-&nbsp;
-<a href="https://github.com/Ruafafa/astrbot_plugin_ww_gacha_sim/pulls"><img src="https://img.shields.io/badge/提交PR-🚀-green?style=for-the-badge"></a>
-&nbsp;
-<a href="https://github.com/Ruafafa/astrbot_plugin_ww_gacha_sim/discussions"><img src="https://img.shields.io/badge/讨论交流-💬-blue?style=for-the-badge"></a>
-
-<br><br>
-
-<sub>最后更新：2026-05-03</sub>
-
-</div>
+本项目使用 [AGPL-3.0](LICENSE)。

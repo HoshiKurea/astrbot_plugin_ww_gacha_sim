@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Any
 
 from ..db.item_db_operations import ItemDBOperations
+from ..security import validate_group
 
 
 class Item:
@@ -136,7 +137,7 @@ class ItemManager:
 
     def __init__(
         self,
-        db_ops: ItemDBOperations = ItemDBOperations(),
+        db_ops: ItemDBOperations,
         config_group: str = "default",
     ):
         """初始化物品数据管理器
@@ -146,9 +147,9 @@ class ItemManager:
             config_group: 配置组名称，用于确定使用哪个表
         """
         self.db_ops = db_ops
-        self.config_group = config_group
+        self.config_group = validate_group(config_group)
         # 根据配置组确定表名
-        self.table_name = f"{config_group}_items"
+        self.table_name = f"{self.config_group}_items"
         # 加载所有物品数据到内存缓存
         self._item_details = self.db_ops.load_all_items(self.table_name)
 
@@ -158,8 +159,8 @@ class ItemManager:
         Args:
             config_group: 新的配置组名称
         """
-        self.config_group = config_group
-        self.table_name = f"{config_group}_items"
+        self.config_group = validate_group(config_group)
+        self.table_name = f"{self.config_group}_items"
         # 重新加载物品数据
         self._item_details = self.db_ops.load_all_items(self.table_name)
 

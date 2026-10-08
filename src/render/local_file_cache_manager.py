@@ -1,7 +1,10 @@
 import hashlib
 import json
+import os
+import re
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from PIL import Image
@@ -13,7 +16,8 @@ from astrbot.api.star import StarTools
 class LocalFileCacheManager:
     """本地文件缓存管理器"""
 
-    def __init__(self, cache_dir: Path | None = None, cleanup_interval: int = 24):
+    def __init__(self, cache_dir: Path | None = None, cleanup_interval: int = 24,
+                 max_bytes: int = 512 * 1024 * 1024):
         """
         初始化缓存管理器
 
@@ -28,11 +32,15 @@ class LocalFileCacheManager:
         else:
             self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        if max_bytes < 1:
+            raise ValueError("缓存容量必须大于零")
+        self.max_bytes = max_bytes
         self.meta_file = self.cache_dir / "cache_meta.json"
         self.cleanup_interval = cleanup_interval * 3600  # 转换为秒
         self.last_cleanup_time = 0
         self._cleanup_timer = None
         self._cleanup_lock = threading.Lock()
+        self._meta_lock = threading.RLock()
         self._load_cache_meta()
 
     def _load_cache_meta(self):
@@ -46,12 +54,48 @@ class LocalFileCacheManager:
         else:
             self.cache_meta = {}
 
+        if not isinstance(self.cache_meta, dict):
+            self.cache_meta = {}
+        self.cache_meta = {
+            key: value for key, value in self.cache_meta.items()
+            if isinstance(key, str) and self._valid_key(key)
+            and isinstance(value, dict)
+            and isinstance(value.get("expires_at"), (int, float))
+            and isinstance(value.get("created_at"), (int, float))
+        }
+        self.clear_expired_cache()
         self._start_scheduled_cleanup()
+
+    @staticmethod
+    def _valid_key(key: str) -> bool:
+        return bool(re.fullmatch(r"[A-Za-z0-9_.-]{1,200}", key)) and key not in (".", "..")
+
+    @classmethod
+    def _check_key(cls, key: str) -> None:
+        if not cls._valid_key(key):
+            raise ValueError("无效的缓存键")
 
     def _save_cache_meta(self):
         """保存缓存元数据"""
-        with open(self.meta_file, "w", encoding="utf-8") as f:
-            json.dump(self.cache_meta, f, ensure_ascii=False, indent=2)
+        with self._meta_lock:
+            temporary = self.cache_dir / f".{uuid.uuid4().hex}.tmp"
+            try:
+                with open(temporary, "w", encoding="utf-8") as f:
+                    json.dump(self.cache_meta, f, ensure_ascii=False, indent=2)
+                os.replace(temporary, self.meta_file)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+    def _enforce_capacity(self):
+        total = self.get_cache_size()
+        for key, _ in sorted(self.cache_meta.items(),
+                             key=lambda entry: entry[1].get("created_at", 0)):
+            if total <= self.max_bytes:
+                break
+            path = self.cache_dir / f"{key}.cache"
+            size = path.stat().st_size if path.exists() else 0
+            self._remove_cache(key)
+            total -= size
 
     def _generate_cache_key(self, content: str | bytes | Path) -> str:
         """
@@ -85,14 +129,15 @@ class LocalFileCacheManager:
         Returns:
             缓存文件路径（如果存在）
         """
-        cache_file = self.cache_dir / f"{key}.cache"
-        if cache_file.exists():
-            # 检查是否过期
-            if self._is_cache_expired(key):
-                self._remove_cache(key)
-                return None
-            return cache_file
-        return None
+        self._check_key(key)
+        with self._meta_lock:
+            cache_file = self.cache_dir / f"{key}.cache"
+            if cache_file.exists():
+                if self._is_cache_expired(key):
+                    self._remove_cache(key)
+                    return None
+                return cache_file
+            return None
 
     def _is_cache_expired(self, key: str) -> bool:
         """
@@ -114,15 +159,12 @@ class LocalFileCacheManager:
 
     def _remove_cache(self, key: str):
         """删除缓存"""
-        # 删除缓存文件
-        cache_file = self.cache_dir / f"{key}.cache"
-        if cache_file.exists():
-            cache_file.unlink()
-
-        # 从元数据中移除
-        if key in self.cache_meta:
-            del self.cache_meta[key]
-            self._save_cache_meta()
+        with self._meta_lock:
+            cache_file = self.cache_dir / f"{key}.cache"
+            cache_file.unlink(missing_ok=True)
+            if key in self.cache_meta:
+                del self.cache_meta[key]
+                self._save_cache_meta()
 
     def cache_file(
         self, content: str | bytes, key: str = None, expire_time: int = 3600
@@ -140,26 +182,27 @@ class LocalFileCacheManager:
         """
         if key is None:
             key = self._generate_cache_key(content)
+        self._check_key(key)
 
-        cache_file = self.cache_dir / f"{key}.cache"
-
-        # 写入缓存内容
-        if isinstance(content, str):
-            with open(cache_file, "w", encoding="utf-8") as f:
-                f.write(content)
-        else:
-            with open(cache_file, "wb") as f:
-                f.write(content)
-
-        # 更新元数据
-        self.cache_meta[key] = {
-            "created_at": time.time(),
-            "expires_at": time.time() + expire_time,
-            "size": cache_file.stat().st_size if cache_file.exists() else 0,
-        }
-        self._save_cache_meta()
-
-        return cache_file
+        content = content.encode("utf-8") if isinstance(content, str) else content
+        if len(content) > self.max_bytes:
+            raise ValueError("缓存文件超过容量上限")
+        with self._meta_lock:
+            cache_file = self.cache_dir / f"{key}.cache"
+            temporary = self.cache_dir / f".{uuid.uuid4().hex}.tmp"
+            try:
+                temporary.write_bytes(content)
+                os.replace(temporary, cache_file)
+            finally:
+                temporary.unlink(missing_ok=True)
+            now = time.time()
+            self.cache_meta[key] = {
+                "created_at": now, "expires_at": now + expire_time,
+                "size": len(content),
+            }
+            self._save_cache_meta()
+            self._enforce_capacity()
+            return cache_file
 
     def cache_image(
         self, image: Image.Image, key: str = None, expire_time: int = 3600
@@ -179,22 +222,27 @@ class LocalFileCacheManager:
             # 使用图片的哈希值作为键
             image_bytes = self._image_to_bytes(image)
             key = self._generate_cache_key(image_bytes)
+        self._check_key(key)
 
-        cache_file = self.cache_dir / f"{key}.cache"
-
-        # 保存图片
-        image.save(cache_file, format="PNG")
-
-        # 更新元数据
-        self.cache_meta[key] = {
-            "created_at": time.time(),
-            "expires_at": time.time() + expire_time,
-            "size": cache_file.stat().st_size if cache_file.exists() else 0,
-            "type": "image",
-        }
-        self._save_cache_meta()
-
-        return cache_file
+        with self._meta_lock:
+            cache_file = self.cache_dir / f"{key}.cache"
+            temporary = self.cache_dir / f".{uuid.uuid4().hex}.tmp"
+            try:
+                image.save(temporary, format="PNG")
+                size = temporary.stat().st_size
+                if size > self.max_bytes:
+                    raise ValueError("缓存图片超过容量上限")
+                os.replace(temporary, cache_file)
+            finally:
+                temporary.unlink(missing_ok=True)
+            now = time.time()
+            self.cache_meta[key] = {
+                "created_at": now, "expires_at": now + expire_time,
+                "size": size, "type": "image",
+            }
+            self._save_cache_meta()
+            self._enforce_capacity()
+            return cache_file
 
     def _image_to_bytes(self, image: Image.Image) -> bytes:
         """将PIL图片对象转换为字节"""
@@ -214,47 +262,45 @@ class LocalFileCacheManager:
         Returns:
             PIL图片对象（如果存在且未过期）
         """
-        cache_file = self.get_cached_file_path(key)
-        if cache_file:
-            try:
-                return Image.open(cache_file)
-            except Exception:
-                # 如果图片文件损坏，删除缓存并返回None
-                self._remove_cache(key)
-                return None
-        return None
+        with self._meta_lock:
+            cache_file = self.get_cached_file_path(key)
+            if cache_file:
+                try:
+                    with Image.open(cache_file) as image:
+                        return image.copy()
+                except Exception:
+                    self._remove_cache(key)
+            return None
 
     def clear_expired_cache(self):
         """清理过期缓存"""
-        current_time = time.time()
-        expired_keys = []
-
-        for key, meta in self.cache_meta.items():
-            if "expires_at" in meta and current_time > meta["expires_at"]:
-                expired_keys.append(key)
-
-        for key in expired_keys:
-            self._remove_cache(key)
-
-        self.last_cleanup_time = current_time
-
-        if expired_keys:
-            logger.info(f"清理了 {len(expired_keys)} 个过期缓存项")
+        with self._meta_lock:
+            current_time = time.time()
+            expired_keys = [key for key, meta in self.cache_meta.items()
+                            if current_time > meta.get("expires_at", float("inf"))]
+            for key in expired_keys:
+                self._remove_cache(key)
+            for path in self.cache_dir.glob("*.cache"):
+                if path.stem not in self.cache_meta:
+                    path.unlink(missing_ok=True)
+            self._enforce_capacity()
+            self.last_cleanup_time = current_time
+            if expired_keys:
+                logger.info(f"清理了 {len(expired_keys)} 个过期缓存项")
 
     def clear_all_cache(self):
         """清理所有缓存"""
 
-        for cache_file in self.cache_dir.glob("*.cache"):
-            cache_file.unlink()
-        self.cache_meta = {}
-        self._save_cache_meta()
+        with self._meta_lock:
+            for cache_file in self.cache_dir.glob("*.cache"):
+                cache_file.unlink(missing_ok=True)
+            self.cache_meta = {}
+            self._save_cache_meta()
 
     def get_cache_size(self) -> int:
         """获取缓存总大小"""
-        total_size = 0
-        for cache_file in self.cache_dir.glob("*.cache"):
-            total_size += cache_file.stat().st_size
-        return total_size
+        with self._meta_lock:
+            return sum(path.stat().st_size for path in self.cache_dir.glob("*.cache"))
 
     def _start_scheduled_cleanup(self):
         """启动定时清理任务"""

@@ -5,31 +5,23 @@
     "hint": "启用或禁用抽卡结果的图片渲染功能",
     "default": true
   },
-    "enable_history_recording": {
+  "enable_history_recording": {
     "description": "是否记录历史抽卡记录",
     "type": "bool",
     "hint": "是否保存用户的抽卡历史记录",
     "default": true
   },
-  "enable_webui": {
-    "description": "启动时自动打开WebUI",
-    "type": "bool",
-    "hint": "启用后，插件加载时将自动在后台启动Web管理界面",
-    "default": true
+  "default_pool_id": {
+    "description": "默认卡池 ID",
+    "type": "string",
+    "hint": "用户没有设置默认卡池时优先使用此 ID；留空则使用第一个已启用卡池",
+    "default": ""
   },
   "save_rendered_results": {
     "description": "是否保存渲染结果",
     "type": "bool",
     "hint": "是否将渲染的抽卡结果图片保存到 data 目录下",
     "default": false
-  },
-  "webui_port": {
-    "description": "WebUI端口",
-    "type": "int",
-    "hint": "Web管理界面的运行端口号",
-    "default": 5000,
-    "minimum": 1024,
-    "maximum": 65535
   },
   "cache_cleanup_interval": {
     "description": "资源缓存清理周期",
@@ -38,6 +30,72 @@
     "default": 24,
     "minimum": 1,
     "maximum": 720
+  },
+  "cache_max_mb": {
+    "description": "缓存容量上限（MiB）",
+    "type": "int",
+    "default": 512,
+    "minimum": 16,
+    "maximum": 4096
+  },
+  "rendered_result_retention_days": {
+    "description": "渲染结果保留天数",
+    "type": "int",
+    "default": 7,
+    "minimum": 1,
+    "maximum": 365
+  },
+  "font_path": {
+    "description": "自定义中文字体文件路径",
+    "type": "string",
+    "hint": "留空自动查找系统字体；配置后需重载插件",
+    "default": ""
+  },
+  "render_workers": {
+    "description": "并发渲染数",
+    "type": "int",
+    "default": 2,
+    "minimum": 1,
+    "maximum": 4
+  },
+  "render_queue_limit": {
+    "description": "渲染等待队列上限",
+    "type": "int",
+    "default": 20,
+    "minimum": 0,
+    "maximum": 100
+  },
+  "render_timeout_seconds": {
+    "description": "图片生成等待秒数",
+    "type": "int",
+    "hint": "仅计算图片绘制与编码的等待时间；立绘下载另行计时，超时保留已提交的文字结果",
+    "default": 8,
+    "minimum": 1,
+    "maximum": 60
+  },
+  "portrait_download_workers": {
+    "description": "立绘并发下载数",
+    "type": "int",
+    "hint": "首次抽卡与卡池资源准备各使用此并发上限；相同立绘共享下载与缓存",
+    "default": 3,
+    "minimum": 1,
+    "maximum": 6
+  },
+  "portrait_wait_timeout_seconds": {
+    "description": "完整立绘等待秒数",
+    "type": "int",
+    "hint": "先发送抽卡文字，再等待资源就绪并补发完整图片；超时下载继续缓存，本次以文字为准",
+    "default": 45,
+    "minimum": 5,
+    "maximum": 120
+  },
+  "database_queue_limit": {
+    "description": "抽卡与管理操作等待队列上限",
+    "type": "int",
+    "hint": "共用串行后台数据库线程；满载时拒绝新任务并提示繁忙，避免无限排队",
+    "default": 64,
+    "minimum": 0,
+    "maximum": 256
   },
   "enable_proxy": {
     "description": "是否开启网络代理",

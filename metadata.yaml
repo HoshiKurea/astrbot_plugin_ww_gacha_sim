@@ -1,6 +1,7 @@
 name: astrbot_plugin_ww_gacha_sim # 插件唯一识别名，以 astrbot_plugin_ 前缀开头
 display_name: 鸣潮模拟抽卡 # 用于展示的名字，可以是方便人类阅读的名字（需要版本 >= v4.5.0，低版本不会报错，请放心填写）
 desc: 一个提供模拟鸣潮抽卡功能的插件，展示抽卡结果和渲染图片，支持自定义卡池配置和物品导入等功能。 # 插件简短描述
-version: v1.1.2 # 插件版本号。格式：v1.1.1 或者 v1.1
+version: v1.4.0 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: Ruafafa # 作者
-repo: https://github.com/Ruafafa/astrbot_plugin_ww_gacha_sim # 插件的仓库地址
+repo: https://github.com/HoshiKurea/astrbot_plugin_ww_gacha_sim # 插件的仓库地址
+astrbot_version: ">=4.27.5" # 已验证原生 Plugin Pages 与 astrbot.api.web

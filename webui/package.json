@@ -1,0 +1,10 @@
+{
+  "name": "ww-gacha-admin-page",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node --check app.js && node --check portraits.mjs && node --check resources.mjs && node scripts/build.mjs --check && node --test tests/pool-editor.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
