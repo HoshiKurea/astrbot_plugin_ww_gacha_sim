@@ -249,5 +249,9 @@ class ResourceService:
         self.closed = True
         for job in self.jobs.values():
             job["cancel"] = True
-        await asyncio.gather(*self.tasks.values(), return_exceptions=True)
+        # Finished jobs may belong to a previous, already closed event loop.
+        # Only running jobs need draining; Python 3.14 rejects gathering tasks
+        # from a different loop even when they have already finished.
+        pending = [task for task in self.tasks.values() if not task.done()]
+        await asyncio.gather(*pending, return_exceptions=True)
         await self.worker.close()

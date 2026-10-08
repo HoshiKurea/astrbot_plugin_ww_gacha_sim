@@ -328,6 +328,65 @@ def test_queued_draw_rejects_pool_disabled_before_transaction(native):
     asyncio.run(scenario())
 
 
+def test_shutdown_after_finished_background_jobs_is_repeatable(native):
+    from src.services.resource_service import ResourceService
+
+    store = store_at(native.tmp_path)
+    resources = ResourceService(store, native.pools, native.items, native.service.database)
+    native.service.resources = resources
+
+    async def finish_jobs():
+        imported = resources.start_import(b"invalid package")
+        await resources.tasks[imported["id"]]
+        assert resources.snapshot(imported["id"])["state"] == "failed"
+        finished = asyncio.create_task(asyncio.sleep(0, result={"items": []}))
+        cancelled = asyncio.create_task(asyncio.sleep(60))
+        cancelled.cancel()
+        await asyncio.gather(finished, cancelled, return_exceptions=True)
+        native.service.catalog_tasks.update(finished=finished, cancelled=cancelled)
+
+    # The fixture and host reload may close a service after its original loop
+    # has stopped. Completed resource/catalog tasks must not be re-awaited.
+    asyncio.run(finish_jobs())
+    asyncio.run(native.service.shutdown())
+    asyncio.run(native.service.shutdown())
+    assert resources.closed and resources.worker.closed
+    assert native.service.database.closed and native.service.resource_worker.closed
+
+
+def test_shutdown_waits_for_running_download_and_stops_remaining_entries(tmp_path, monkeypatch):
+    from src.services.resource_service import ResourceService
+    from src.services.work_queue import WorkQueue
+
+    loader = Loader()
+    loader.block = threading.Event()
+    store = store_at(tmp_path, loader)
+    database = WorkQueue()
+    service = ResourceService(store, None, None, database, workers=1)
+    entries = [{"source": SOURCE.replace("a.png", f"{index}.png"), "name": str(index)}
+               for index in range(2)]
+    monkeypatch.setattr(service, "selection", lambda _: (SimpleNamespace(cp_id="p", name="P"), entries, 0))
+
+    async def scenario():
+        try:
+            job = await service.start("p")
+            assert await asyncio.to_thread(loader.started.wait, 1)
+            shutdown = asyncio.create_task(service.close())
+            await asyncio.sleep(0)
+            assert service.closed and not shutdown.done()
+            loader.block.set()
+            await shutdown
+            final = service.snapshot(job["id"])
+            assert final["state"] == "cancelled" and final["completed"] == final["ready"] == 1
+            assert store.is_pinned(entries[0]["source"]) and len(loader.calls) == 1
+        finally:
+            loader.block.set()
+            await service.close()
+            await database.close()
+
+    asyncio.run(scenario())
+
+
 def test_cancel_resource_job_then_retry_keeps_completed_artwork(tmp_path, monkeypatch):
     from src.services.resource_service import ResourceService
     from src.services.work_queue import WorkQueue

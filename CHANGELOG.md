@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0
 - 增加真实宿主 Web API 回归检查，覆盖文件下载、multipart 上传、共享缓存及完全断网后的预览与渲染。
 - 宿主最低版本设为已验证的 AstrBot 4.27.5；4.25.5 尚无所需的 `astrbot.api.web` 模块，避免在不满足接口要求的宿主上尝试加载。
 - 清理旧独立 WebUI 与旧截图，当前管理页截图使用像素一致的无损 WebP；用户卡池、运行数据、缓存和安装包不纳入源码提交。
+- 修复 Python 3.14 下后台任务完成后关闭服务时的事件循环兼容问题；卸载时等待正在下载的资源完成，并停止剩余任务。
 
 ## [v1.3.0] - 2026-10-08
 

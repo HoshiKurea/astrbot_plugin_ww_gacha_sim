@@ -93,7 +93,14 @@ class NativeAdminAPI(ResourceAPI):
         self.close()
         if self.resources is not None:
             await self.resources.close()
-        await asyncio.gather(*self.catalog_tasks.values(), return_exceptions=True)
+        pending = []
+        for task in self.catalog_tasks.values():
+            if not task.done():
+                pending.append(task)
+            elif not task.cancelled():
+                # Consume finished failures without re-awaiting an old loop.
+                task.exception()
+        await asyncio.gather(*pending, return_exceptions=True)
         await self.resource_worker.close()
         if self.owns_database:
             await self.database.close()
